@@ -102,7 +102,7 @@ pub struct RotationEvent {
     #[serde(rename = "ba")]
     pub backers_add: Vec<String>,
     /// Configuration traits.
-    #[serde(rename = "c")]
+    #[serde(rename = "c", default)]
     pub config: Vec<String>,
     /// Anchored data seals.
     #[serde(rename = "a")]
@@ -462,6 +462,28 @@ mod tests {
         assert_eq!(val["p"], "PRIOR_SAID");
         assert!(val.get("br").is_some());
         assert!(val.get("ba").is_some());
+    }
+
+    #[test]
+    fn v1_rotation_without_config_traits_deserializes() {
+        let event: RotationEvent = serde_json::from_value(serde_json::json!({
+            "v": "KERI10JSON000000_",
+            "t": "rot",
+            "d": "SAID",
+            "i": "PREFIX",
+            "s": "1",
+            "p": "PRIOR",
+            "kt": "1",
+            "k": ["DKey"],
+            "nt": "1",
+            "n": ["ENext"],
+            "bt": "0",
+            "br": [],
+            "ba": [],
+            "a": []
+        }))
+        .expect("keripy omits c in v1 rotations");
+        assert!(event.config.is_empty());
     }
 
     #[test]
