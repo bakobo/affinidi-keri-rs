@@ -68,6 +68,8 @@ pub enum Attachment {
     ///
     /// This is the delegator anchor attached to a delegated event.
     SealSourceCouples(Vec<(String, String)>),
+    /// V1 source seals, kept as qb64: (prefix, sequence number, event SAID).
+    SealSourceTriples(Vec<(String, String, String)>),
     /// Transferable indexed signature groups.
     TransIdxSigGroups(Vec<TransIdxSigGroup>),
     /// A group whose counter code this parser does not interpret.
@@ -372,6 +374,11 @@ fn parse_attachments(
                 attachments.push(Attachment::SealSourceCouples(couples));
                 offset += consumed;
             }
+            GroupKind::SealSourceTriples => {
+                let (triples, consumed) = parse_qb64_triples(&data[offset..], count)?;
+                attachments.push(Attachment::SealSourceTriples(triples));
+                offset += consumed;
+            }
             GroupKind::TransIdxSigGroups => {
                 let (groups, consumed) =
                     parse_trans_idx_sig_groups(&data[offset..], count, table, strict)?;
@@ -509,6 +516,46 @@ fn parse_qb64_pairs(
     }
 
     Ok((couples, offset))
+}
+
+/// Parse `count` source seals, each a prefix, sequence number, and event SAID.
+fn parse_qb64_triples(
+    data: &[u8],
+    count: usize,
+) -> Result<(Vec<(String, String, String)>, usize), CoreError> {
+    if count > MAX_ATTACHMENT_COUNT {
+        return Err(CoreError::ParseError(format!(
+            "source seal count {count} exceeds maximum of {MAX_ATTACHMENT_COUNT}"
+        )));
+    }
+    if count * MIN_PRIMITIVE_SIZE * 3 > data.len() {
+        return Err(CoreError::ParseError(format!(
+            "source seal count {count} requires at least {} bytes, but only {} available",
+            count * MIN_PRIMITIVE_SIZE * 3,
+            data.len()
+        )));
+    }
+    let text = std::str::from_utf8(data)
+        .map_err(|_| CoreError::ParseError("source seal data is not valid UTF-8".into()))?;
+    if !text.is_ascii() {
+        return Err(CoreError::ParseError(
+            "source seal data contains non-ASCII bytes".into(),
+        ));
+    }
+    let mut triples = Vec::with_capacity(count);
+    let mut offset = 0;
+
+    for i in 0..count {
+        let (prefix, size) = parse_matter_qb64(&text[offset..], i, "source seal prefix")?;
+        offset += size;
+        let (sn, size) = parse_matter_qb64(&text[offset..], i, "source seal sequence")?;
+        offset += size;
+        let (said, size) = parse_matter_qb64(&text[offset..], i, "source seal SAID")?;
+        offset += size;
+        triples.push((prefix, sn, said));
+    }
+
+    Ok((triples, offset))
 }
 
 /// Parse `count` indexed signatures from the data.
@@ -708,6 +755,47 @@ mod tests {
     use crate::said;
     use crate::version::SerializationKind;
     use affinidi_keri_crypto::{Diger, Signer};
+
+    #[test]
+    fn v1_source_seal_triple_is_parsed_and_bounded() {
+        let prefix = "ENro7uf0ePmiK3jdTo2YCdXLqW7z7xoP6qhhBou6gBLe";
+        let sn = "0AAAAAAAAAAAAAAAAAAAAAAA";
+        let said = "ECDPHxFNfZ_rihCMUEy4hztjQInJlmIWK7TKOEfviFK1";
+        let attachment = format!("-IAB{prefix}{sn}{said}");
+
+        let (parsed, consumed) =
+            parse_attachments(attachment.as_bytes(), CounterTable::V1, true).unwrap();
+        assert_eq!(consumed, attachment.len());
+        assert!(matches!(
+            parsed.as_slice(),
+            [Attachment::SealSourceTriples(triples)]
+                if triples == &[(prefix.to_string(), sn.to_string(), said.to_string())]
+        ));
+        assert!(
+            parse_attachments(
+                &attachment.as_bytes()[..attachment.len() - 1],
+                CounterTable::V1,
+                true
+            )
+            .is_err()
+        );
+        assert!(parse_attachments(attachment.as_bytes(), CounterTable::V2, true).is_err());
+    }
+
+    #[test]
+    fn malformed_source_seal_triples_are_refused() {
+        let prefix = "ENro7uf0ePmiK3jdTo2YCdXLqW7z7xoP6qhhBou6gBLe";
+        let sn = "0AAAAAAAAAAAAAAAAAAAAAAA";
+        let said = "ECDPHxFNfZ_rihCMUEy4hztjQInJlmIWK7TKOEfviFK1";
+        assert!(parse_qb64_triples(b"", MAX_ATTACHMENT_COUNT + 1).is_err());
+        assert!(parse_qb64_triples(b"", 1).is_err());
+        assert!(parse_qb64_triples(&[0xff; 12], 1).is_err());
+        assert!(parse_qb64_triples("éééééé".as_bytes(), 1).is_err());
+        assert!(parse_qb64_triples(format!("!{sn}{said}").as_bytes(), 1).is_err());
+        assert!(parse_qb64_triples(format!("{prefix}!{said}").as_bytes(), 1).is_err());
+        assert!(parse_qb64_triples(format!("{prefix}{sn}!").as_bytes(), 1).is_err());
+        assert_eq!(parse_qb64_triples(b"", 0).unwrap().0.len(), 0);
+    }
 
     #[test]
     fn test_parse_next_json_no_attachments() {

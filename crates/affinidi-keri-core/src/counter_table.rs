@@ -13,6 +13,7 @@
 //! | `-E` | first seen replay couples   | transferable receipt quadruples |
 //! | `-F` | transferable indexed sig groups | first seen replay couples |
 //! | `-G` | seal source couples         | seal source couples         |
+//! | `-I` | seal source triples         | —                           |
 //! | `-V` | attached material (quadlets)| —                           |
 //!
 //! The *sizes* are identical in both (a two-character code plus a
@@ -63,6 +64,8 @@ pub enum GroupKind {
     /// Seal source couples: (sequence number, event SAID). This is the
     /// delegator anchor carried with a delegated event.
     SealSourceCouples,
+    /// Seal source triples: (prefix, sequence number, event SAID).
+    SealSourceTriples,
 }
 
 impl GroupKind {
@@ -85,6 +88,7 @@ impl GroupKind {
             (CounterTable::V1, "E") => Some(Self::FirstSeenReplayCouples),
             (CounterTable::V1, "F") => Some(Self::TransIdxSigGroups),
             (CounterTable::V1, "G") => Some(Self::SealSourceCouples),
+            (CounterTable::V1, "I") => Some(Self::SealSourceTriples),
             (CounterTable::V1, "V") => Some(Self::AttachedMaterialQuadlets),
 
             (CounterTable::V2, "A") => Some(Self::AttachedMaterialQuadlets),
@@ -111,6 +115,7 @@ impl GroupKind {
             (CounterTable::V1, Self::FirstSeenReplayCouples) => "-E",
             (CounterTable::V1, Self::TransIdxSigGroups) => "-F",
             (CounterTable::V1, Self::SealSourceCouples) => "-G",
+            (CounterTable::V1, Self::SealSourceTriples) => "-I",
             (CounterTable::V1, Self::AttachedMaterialQuadlets) => "-V",
 
             (CounterTable::V2, Self::AttachedMaterialQuadlets) => "-A",
@@ -120,6 +125,7 @@ impl GroupKind {
             (CounterTable::V2, Self::TransReceiptQuadruples) => "-E",
             (CounterTable::V2, Self::FirstSeenReplayCouples) => "-F",
             (CounterTable::V2, Self::SealSourceCouples) => "-G",
+            (CounterTable::V2, Self::SealSourceTriples) => return None,
             (CounterTable::V2, Self::TransIdxSigGroups) => return None,
         };
         Some(code)
@@ -195,6 +201,23 @@ mod tests {
     fn unknown_codes_are_none() {
         assert_eq!(GroupKind::classify("-Z", CounterTable::V1), None);
         assert_eq!(GroupKind::classify("A", CounterTable::V1), None);
+    }
+
+    #[test]
+    fn v1_source_seal_triples_have_their_own_counter() {
+        assert_eq!(
+            GroupKind::classify("-I", CounterTable::V1),
+            Some(GroupKind::SealSourceTriples)
+        );
+        assert_eq!(
+            GroupKind::classify("-0I", CounterTable::V1),
+            Some(GroupKind::SealSourceTriples)
+        );
+        assert_eq!(
+            GroupKind::SealSourceTriples.code(CounterTable::V1),
+            Some("-I")
+        );
+        assert_eq!(GroupKind::classify("-I", CounterTable::V2), None);
     }
 
     #[test]
