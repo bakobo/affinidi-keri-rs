@@ -22,6 +22,9 @@ const MIN_PRIMITIVE_SIZE: usize = 4;
 /// A receipt couple: (prefix qb64, signature raw bytes).
 type ReceiptCouple = (String, Vec<u8>);
 
+/// A v1 source seal, kept as qb64: (prefix, sequence number, event SAID).
+type SourceSealTriple = (String, String, String);
+
 /// A transferable indexed signature group: a signature made by a transferable
 /// identifier, carried with the point in that identifier's KEL that authorises
 /// it.
@@ -69,7 +72,7 @@ pub enum Attachment {
     /// This is the delegator anchor attached to a delegated event.
     SealSourceCouples(Vec<(String, String)>),
     /// V1 source seals, kept as qb64: (prefix, sequence number, event SAID).
-    SealSourceTriples(Vec<(String, String, String)>),
+    SealSourceTriples(Vec<SourceSealTriple>),
     /// Transferable indexed signature groups.
     TransIdxSigGroups(Vec<TransIdxSigGroup>),
     /// A group whose counter code this parser does not interpret.
@@ -522,7 +525,7 @@ fn parse_qb64_pairs(
 fn parse_qb64_triples(
     data: &[u8],
     count: usize,
-) -> Result<(Vec<(String, String, String)>, usize), CoreError> {
+) -> Result<(Vec<SourceSealTriple>, usize), CoreError> {
     if count > MAX_ATTACHMENT_COUNT {
         return Err(CoreError::ParseError(format!(
             "source seal count {count} exceeds maximum of {MAX_ATTACHMENT_COUNT}"
